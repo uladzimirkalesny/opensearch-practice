@@ -1,0 +1,1017 @@
+Basic Architecture:
+
+OpenSearch is built on top of Apache Lucene.
+
+Nodes store the data that we add to OpenSearch.
+A cluster is a collection of nodes.
+Each unit of data that we are going to store within OpenSearch cluster is called a document.
+Documents are JSON objects containing whatever data we desire.
+When we index a document, the original JSON object that we sent to OpenSearch is stored along with some metadata that OpenSearch uses internally.
+Json
+{
+	"name": "John Doe",
+	"country": "USA"
+}
+is stored as
+{
+	"_index": "people",
+	"_type": "doc",
+	"_id": "123",
+	"_version": 1,
+	"_seq_no": 0,
+	"_primary_term": 1,
+	"_source": {
+		"name": "John Doe",
+		"country": "USA"
+	}
+}
+Documents are organized in OpenSearch cluster within indices. Every document within OpenSearch cluseter is stored within an index.
+An index is a collection of documents that have similar characteristics and are logically related. (People Index => "John Doe", "Jane Doe")
+When we get to searching for data, we will specify the index that we want to search for documents. (meaning search queries are actually run against indices).
+
+=================================================================
+
+Sharding and Scalability:
+
+Sharding is a way to divide an index into separate pieces, where each piece is called shard. Sharding is done at the index level (not at the cluster or node level).
+The main purpose for dividing an index into multiple shards, is to be able to horizontally scale the data volume.
+Each shard is independent, and we can think of a shard as being a fully functional index on its own.
+Each shard is actually Apache Lucene index.
+The purpose of sharding
+ - Mainly to be able to store more docs.
+ - To easier fit large indices onto nodes.
+ - Improved performance
+  - Parallelization of queries increases the throughput of an index. (search query can be run on multiple shards at the same time)
+  
+GET _cat/indices?v
+health status index                        uuid                   pri rep docs.count docs.deleted store.size pri.store.size
+green  open   .plugins-ml-config           1ddOtvijTWyo3PBOvvZxfA   1   1          1            0      8.1kb            4kb
+green  open   .ql-datasources              -sqY-Ww0TxS41TCLQT0mxg   1   1          0            0       416b           208b
+green  open   .kibana_92668751_admin_1     h6yh72yIQLKNHdbDChvYNg   1   1          1            0     10.7kb          5.3kb
+green  open   top_queries-2025.07.20-40856 lbKlCFE3Rmu9HJ7Fg80HJQ   1   1         20            4    236.4kb        119.1kb
+green  open   security-auditlog-2025.07.20 lMKB-qiUSvy5H6mR0BPrGg   1   1        220            0      1.1mb        367.6kb
+green  open   .opendistro_security         BpL5PUgVR1mGsMNmz1wWcA   1   1          9            0    162.2kb         81.1kb
+green  open   .kibana_1                    0lrzDhcCS06LpHgOnlKoHQ   1   1          0            0       416b           208b
+
+PRI stands for primary shards (1 - an index contains a single shard by default).
+
+To increase the number of shards we need use the Split API for this. (it sill involves creating a new index).
+To reduce the number of shards we need use the Shrink API.
+
+Add a couple of shards for large indices; otherwise use default settings.
+Sharding enables us to scale the data volume. Adding more nodes to the cluster helps too, but only to a certain extent (unless there are no very large indices).
+
+=================================================================
+
+Replication:
+
+OpenSearch supports replication for fault tolerance. Replication is supported by default natively and enabled by default.
+Replication is configured at the index level.
+Replication works by creating copies of shards, reffered to as replicat shards.
+A shard that has been replicated one or more times, is called a primary shard.
+A primary shard and its replica shards are reffered to as a replication group.
+Replica shards are a complete copy of a shard.
+A replica shard can serve search requests, exactly like its primary shard.
+The number of replicas can be configured at index creation.
+
+An index contains shards, which in turn may contain replica shards. An index may be split into 2 primary shards, each having 2 replica shards.
+The index, therefore, contains 2 replication groups.
+Example index
+ - Replication group A
+  - Primary Shard A
+	- Replica A1
+	- Replica A2
+ - Replication group B
+  - Primary Shard B
+	- Replica B1
+	- Replica B2
+Replica shards are never stored on the same node as their primary shard.
+Replication only makes sense for clusters that contain more than 1 node.
+For criticak systems, data should be replicated at least twice.
+
+OpenSearch supports taking snapshots as backups.
+Snapshots can be taken at the index level, or for the entire cluster.
+Snapshots are used for backups, and replication for HA (and performance).
+
+Create an index with default settings (1 Primary Shard and 1 Replica Shard)
+Request:
+PUT /pages
+Response:
+{
+  "acknowledged": true,
+  "shards_acknowledged": true,
+  "index": "pages"
+}
+
+GET /_cat/indices?v
+health status index                        uuid                   pri rep docs.count docs.deleted store.size pri.store.size
+green  open   pages                        5Z3z6VFiQomhFOqyuXfabA   1   1          0            0       416b           208b
+
+GET /_cat/shards?v
+index                            shard prirep state   docs   store ip         node
+pages                            0     p      STARTED    0    208b 172.19.0.2 opensearch-node2
+pages                            0     r      STARTED    0    208b 172.19.0.4 opensearch-node1
+
+=================================================================
+
+Overview of node roles:
+ - Master-eligible (the node may be elected as the cluster's master node)
+	- Configuration: node.master: true|false
+	- Master-node is responsible for creating and deleting indices, keeping track of nodes, allocating shards to node among others
+ - Data - Enables a node to store data
+	- Configuration: node.data: true|false
+	- Storing data includes performing queries related to that data, such as search queries and modification of data.
+ - Ingest - Enables a node to run ingest pipelines
+	- Configuration: node.ingest: true|false
+	- Ingest pipelines are a series of steps(processors) that are performed when indexing documents. Processors can manipulate documents before storing them to indexes.
+ - Machine Learning
+ - Coordination - refers to the distribution of queries and the aggregation of results.
+	- Configuration: node.master: false, node.data: false, node.ingest: false, node.ml: false, xpack.ml.enabled: false
+ - Voting-only - a node with this role will participate in the voting process for a new master node.
+	- Configuration: node.voting_only: true|false
+	
+GET /_cat/nodes?v
+ip         heap.percent ram.percent cpu load_1m load_5m load_15m node.role node.roles                                        cluster_manager name
+172.19.0.2           68          40   0    0.04    0.11     0.09 dimr      cluster_manager,data,ingest,remote_cluster_client -               opensearch-node2
+172.19.0.4           66          40   0    0.04    0.11     0.09 dimr      cluster_manager,data,ingest,remote_cluster_client *               opensearch-node1
+
+=================================================================
+
+Managing documents:
+
+ - Create index with default settings:
+PUT /pages
+{
+  "acknowledged": true,
+  "shards_acknowledged": true,
+  "index": "pages"
+}
+
+ - Create index with custom settings:
+PUT /products
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 1
+  }
+}
+{
+  "acknowledged": true,
+  "shards_acknowledged": true,
+  "index": "products"
+}
+GET /_cat/indices?v
+health status index                        uuid                   pri rep docs.count docs.deleted store.size pri.store.size
+green  open   products                     pIWXw-2PQpqtJfkgII-WIA   1   1          0            0       416b           208b
+
+ - Delete index:
+DELETE /pages
+
+{
+  "acknowledged": true
+}
+
+ - Indexing documents:
+POST /products/_doc
+{
+  "name": "Coffee Maker",
+  "price": 64,
+  "in_stock": 10
+  
+}
+{
+  "_index": "products",
+  "_id": "38GMLpgBGCdHRu0Wxuqj",
+  "_version": 1,
+  "result": "created",
+  "_shards": {
+    "total": 2, // 1 primary shard + 1 replica shard
+    "successful": 2,
+    "failed": 0
+  },
+  "_seq_no": 0,
+  "_primary_term": 1
+}
+
+ - To indexing document with specific identifier:
+PUT /products/_doc/100
+{
+  "name": "Toaster",
+  "price": 49,
+  "in_stock": 4
+}
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 1,
+  "result": "created",
+  "_shards": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0
+  },
+  "_seq_no": 1,
+  "_primary_term": 1
+}
+
+ - Retrieving documents by identifier:
+GET /products/_doc/100
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 1,
+  "_seq_no": 1,
+  "_primary_term": 1,
+  "found": true,
+  "_source": {
+    "name": "Toaster",
+    "price": 49,
+    "in_stock": 4
+  }
+}
+
+ - Updating documents
+POST /products/_update/100
+{
+  "doc": {
+    "in_stock": 3
+  }
+}
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 2,
+  "result": "updated",
+  "_shards": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0
+  },
+  "_seq_no": 2,
+  "_primary_term": 1
+}
+
+To add new field
+POST /products/_update/100
+{
+  "doc": {
+    "tags": ["electronics"]
+  }
+}
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 3,
+  "result": "updated",
+  "_shards": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0
+  },
+  "_seq_no": 3,
+  "_primary_term": 1
+}
+
+OpenSearch documents are immutable. If we update/modify existing documents we actually replaced documents entirely.
+
+ - Scripted updates:
+POST /products/_update/100
+{
+  "script": {
+    "source": "ctx._source.in_stock--"
+  }
+}
+ctx - context
+_source - current doc
+in_stock - field of doc to update (substracting)
+
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 4,
+  "result": "updated",
+  "_shards": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0
+  },
+  "_seq_no": 4,
+  "_primary_term": 1
+}
+GET /products/_doc/100
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 4,
+  "_seq_no": 4,
+  "_primary_term": 1,
+  "found": true,
+  "_source": {
+    "name": "Toaster",
+    "price": 49,
+    "in_stock": 2,
+    "tags": [
+      "electronics"
+    ]
+  }
+}
+
+POST /products/_update/100
+{
+  "script": {
+    "source": "ctx._source.in_stock = 10"
+  }
+}
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 5,
+  "result": "updated",
+  "_shards": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0
+  },
+  "_seq_no": 5,
+  "_primary_term": 1
+}
+GET /products/_doc/100
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 5,
+  "_seq_no": 5,
+  "_primary_term": 1,
+  "found": true,
+  "_source": {
+    "name": "Toaster",
+    "price": 49,
+    "in_stock": 10,
+    "tags": [
+      "electronics"
+    ]
+  }
+}
+
+Example with params:
+POST /products/_update/100
+{
+  "script": {
+    "source": "ctx._source.in_stock -= params.quantity",
+    "params": {
+      "quantity": 4
+    }
+  }
+}
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 6,
+  "result": "updated",
+  "_shards": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0
+  },
+  "_seq_no": 6,
+  "_primary_term": 1
+}
+
+GET /products/_doc/100
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 6,
+  "_seq_no": 6,
+  "_primary_term": 1,
+  "found": true,
+  "_source": {
+    "name": "Toaster",
+    "price": 49,
+    "in_stock": 6,
+    "tags": [
+      "electronics"
+    ]
+  }
+}
+
+// noop example if in_stock items equals zero (no changes applies to doc, otherwise doc will be updated)
+POST /products/_update/100
+{
+  "script": {
+    "source": """
+      if (ctx._source.in_stock == 0) {
+        ctx.op = 'noop';
+      }
+      ctx._source.in_stock--;
+    """
+    }
+  }
+}
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 7,
+  "result": "updated",
+  "_shards": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0
+  },
+  "_seq_no": 7,
+  "_primary_term": 1
+}
+GET /products/_doc/100
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 21,
+  "_seq_no": 21,
+  "_primary_term": 1,
+  "found": true,
+  "_source": {
+    "name": "Toaster",
+    "price": 49,
+    "in_stock": 0,
+    "tags": [
+      "electronics"
+    ]
+  }
+}
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 21,
+  "result": "noop",
+  "_shards": {
+    "total": 0,
+    "successful": 0,
+    "failed": 0
+  },
+  "_seq_no": 21,
+  "_primary_term": 1
+}
+
+// remove product when in_stock less than 1
+POST /products/_update/100
+{
+  "script": {
+    "source": """
+      if (ctx._source.in_stock <= 1) {
+        ctx.op = 'delete';
+      }
+      ctx._source.in_stock--;
+    """
+    }
+  }
+}
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 22,
+  "result": "deleted",
+  "_shards": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0
+  },
+  "_seq_no": 22,
+  "_primary_term": 1
+}
+
+GET /products/_doc/100
+{
+  "_index": "products",
+  "_id": "100",
+  "found": false
+}
+
+ - Upserts:
+Upserting means to conditionally update or insert a doc based on whether or not the doc already exists.
+So, if doc already exists, a script is run, and if it doesn't, a new doc is indexed
+POST /products/_update/101  
+{
+  "script": {
+    "source": "ctx._source.in_stock++"
+  },
+  "upsert": {
+    "name": "Blender",
+    "price": 399,
+    "in_stock": 5
+  }
+}
+{
+  "_index": "products",
+  "_id": "101",
+  "_version": 1,
+  "result": "created", // new document is created
+  "_shards": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0
+  },
+  "_seq_no": 27,
+  "_primary_term": 1
+}
+GET /products/_doc/101
+{
+  "_index": "products",
+  "_id": "101",
+  "_version": 1,
+  "_seq_no": 27,
+  "_primary_term": 1,
+  "found": true,
+  "_source": {
+    "name": "Blender",
+    "price": 399,
+    "in_stock": 5
+  }
+}
+execute 1 more time
+POST /products/_update/101  
+{
+  "script": {
+    "source": "ctx._source.in_stock++"
+  },
+  "upsert": {
+    "name": "Blender",
+    "price": 399,
+    "in_stock": 5
+  }
+}
+{
+  "_index": "products",
+  "_id": "101",
+  "_version": 2,
+  "result": "updated",
+  "_shards": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0
+  },
+  "_seq_no": 28,
+  "_primary_term": 1
+}
+GET /products/_doc/101
+{
+  "_index": "products",
+  "_id": "101",
+  "_version": 2,
+  "_seq_no": 28,
+  "_primary_term": 1,
+  "found": true,
+  "_source": {
+    "name": "Blender",
+    "price": 399,
+    "in_stock": 6 // chanded due to the script
+  }
+}
+
+ - Replacing docs
+PUT /products/_doc/100
+{
+  "name": "Toaster",
+  "price": 49,
+  "in_stock": 4
+}
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 5,
+  "result": "updated",
+  "_shards": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0
+  },
+  "_seq_no": 29,
+  "_primary_term": 1
+}
+
+GET /products/_doc/100
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 5,
+  "_seq_no": 29,
+  "_primary_term": 1,
+  "found": true,
+  "_source": {
+    "name": "Toaster",
+    "price": 49,
+    "in_stock": 4
+  }
+}
+
+ - Deleting docs
+DELETE /products/_doc/101
+{
+  "_index": "products",
+  "_id": "101",
+  "_version": 3,
+  "result": "deleted",
+  "_shards": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0
+  },
+  "_seq_no": 30,
+  "_primary_term": 1
+}
+
+=================================================================
+
+Routing:
+
+Routing is the process of resolving a shard for a doc.
+shard_num = hash(_routing) % num_primary_shards; // by default _routing = doc _id ("_id": "101"). The default rouring strategy distributes documents evenly
+If we decided to override routing strategy we will see "_routing" metadata in the response.
+
+If we were to change the number of shards for an index, then the routing formula would yield different result. (it will be cause for the existing docs to retrieve them).
+Reminder: Modifying the number of shards requires creating a new index and reindexing docs into it (Shrink and Split APIs)
+
+=================================================================
+
+Write request is routed to a primary shard, which then validates the operation, performs it locally, and distributes it to its replica shards in parallel.
+
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 5,
+  "_seq_no": 29,
+  "_primary_term": 1,
+  "found": true,
+  "_source": {
+    "name": "Toaster",
+    "price": 49,
+    "in_stock": 4
+  }
+}
+
+A _primary_term is a way to distinguish between old and new primary shards. Essentially a counter for how many times a primary shard has changed. The primary_term appeneds to write ops.
+A _seq_no appends to write ops. Counter that will incremented for each write ops. The primary shard increases the sequence number.
+
+Recovering when primary shards fails:
+ - Primary terms and sequence number are key when OpenSearch needs to recover from a primary shard failure.
+ - Instead of having to compare data on disk, it can use primary terms and sequence numbers to figure out on which operation have already been performed, and which are needed to bring a given shard to up to date.
+
+=================================================================
+
+Optimistic concurrency control:
+POST /products/_update/100?if_primary_term=1&if_seq_no=71
+
+Example:
+GET /products/_doc/100
+{
+  "_index": "products",
+  "_id": "100",
+  "_version": 6,
+  "_seq_no": 31,
+  "_primary_term": 1,
+  "found": true,
+  "_source": {
+    "name": "Toaster",
+    "price": 49,
+    "in_stock": 3
+  }
+}
+
+Update Request:
+POST /products/_update/100?if_primary_term=1&if_seq_no=32
+{
+  "doc": {
+    "in_stock": 3
+  }
+}
+Error Message:
+{
+  "error": {
+    "root_cause": [
+      {
+        "type": "version_conflict_engine_exception",
+        "reason": "[100]: version conflict, required seqNo [32], primary term [1]. current document has seqNo [31] and primary term [1]",
+        "index": "products",
+        "shard": "0",
+        "index_uuid": "pIWXw-2PQpqtJfkgII-WIA"
+      }
+    ],
+    "type": "version_conflict_engine_exception",
+    "reason": "[100]: version conflict, required seqNo [32], primary term [1]. current document has seqNo [31] and primary term [1]",
+    "index": "products",
+    "shard": "0",
+    "index_uuid": "pIWXw-2PQpqtJfkgII-WIA"
+  },
+  "status": 409
+}
+
+=================================================================
+
+Update by query:
+
+Updates multiple docs within a signle query (similar UPDATE WHERE query in RDBMS)
+The query uses 3 concepts (primary terms, sequence numbers, optimistic concurrency control)
+The query creates a snapshot to do optimistic concurrency control
+Search queries and bulk updates are sent to replication group sequentially
+ - OpenSearch retries these queries up to 10 times
+ - If the queries still fail, the whole query is aborted
+  - Any changes already made to docs, are not rolled back
+API returns info about failures
+If the document has been modified since taking the snapshot, the query is aborted
+ - This is checked with the docs primary terms and sequence number
+To count version conflicts instead of aborting the query, the "conflicts" option can be set to "proceed"
+
+
+GET /products/_search
+{
+  "query": {
+    "match_all": {}
+  }
+}
+Response:
+{
+  "took": 2,
+  "timed_out": false,
+  "_shards": {
+    "total": 1,
+    "successful": 1,
+    "skipped": 0,
+    "failed": 0
+  },
+  "hits": {
+    "total": {
+      "value": 2,
+      "relation": "eq"
+    },
+    "max_score": 1,
+    "hits": [
+      {
+        "_index": "products",
+        "_id": "100",
+        "_score": 1,
+        "_source": {
+          "name": "Toaster",
+          "price": 49,
+          "in_stock": 3
+        }
+      },
+      {
+        "_index": "products",
+        "_id": "38GMLpgBGCdHRu0Wxuqj",
+        "_score": 1,
+        "_source": {
+          "name": "Coffee Maker",
+          "price": 64,
+          "in_stock": 10
+        }
+      }
+    ]
+  }
+}
+
+Update by query example:
+POST /products/_update_by_query
+{
+  "script": {
+    "source": "ctx._source.in_stock--"
+  },
+  "query": {  // define which docs will be affected within update by query
+    "match_all": {} // run the script for all docs which match the query
+  }
+}
+Response:
+{
+  "took": 247,
+  "timed_out": false,
+  "total": 2,  // 2 docs were updated
+  "updated": 2,
+  "deleted": 0,
+  "batches": 1,
+  "version_conflicts": 0,
+  "noops": 0,
+  "retries": {
+    "bulk": 0,
+    "search": 0
+  },
+  "throttled_millis": 0,
+  "requests_per_second": -1,
+  "throttled_until_millis": 0,
+  "failures": []
+}
+
+=================================================================
+
+Delete by query:
+
+Delete multiple docs withing a single query
+POST /products/_delete_by_query
+{
+  "query": {
+    "match_all": {} // delete all docs are matched to query
+  }
+}
+Response:
+{
+  "took": 26,
+  "timed_out": false,
+  "total": 2,
+  "deleted": 2,
+  "batches": 1,
+  "version_conflicts": 0,
+  "noops": 0,
+  "retries": {
+    "bulk": 0,
+    "search": 0
+  },
+  "throttled_millis": 0,
+  "requests_per_second": -1,
+  "throttled_until_millis": 0,
+  "failures": []
+}
+
+=================================================================
+
+Batch processing:
+
+Performs index, create, update, delete on many docs with a single query using Bulk API. 
+(the diff between index and create is create action will fail if the doc already exists which is not the case for the index action)
+(if we use the index action the doc will be added if it doesn't already exist, otherwise it will be replaced)
+POST /_bulk
+{ "index": { "_index": "products", "_id": 200 } }
+{ "name": "Espresso Machine", "price": 199, "in_stock": 5 }
+{ "create": { "_index": "products", "_id": 200 } }
+{ "name": "Espresso Machine", "price": 199, "in_stock": 5 }
+Response:
+{
+  "took": 13,
+  "errors": true,
+  "items": [
+    {
+      "index": {
+        "_index": "products",
+        "_id": "200",
+        "_version": 2,
+        "result": "updated",
+        "_shards": {
+          "total": 2,
+          "successful": 2,
+          "failed": 0
+        },
+        "_seq_no": 37,
+        "_primary_term": 3,
+        "status": 200
+      }
+    },
+    {
+      "create": {
+        "_index": "products",
+        "_id": "200",
+        "status": 409,
+        "error": {
+          "type": "version_conflict_engine_exception",
+          "reason": "[200]: version conflict, document already exists (current version [2])",
+          "index": "products",
+          "shard": "0",
+          "index_uuid": "pIWXw-2PQpqtJfkgII-WIA"
+        }
+      }
+    }
+  ]
+}
+
+Correct usage:
+POST /_bulk
+{ "index": { "_index": "products", "_id": 200 } }
+{ "name": "Espresso Machine", "price": 199, "in_stock": 5 }
+{ "create": { "_index": "products", "_id": 201 } }
+{ "name": "Milk Frother", "price": 149, "in_stock": 14 }
+Response:
+{
+  "took": 5,
+  "errors": false,
+  "items": [
+    {
+      "index": {
+        "_index": "products",
+        "_id": "200",
+        "_version": 1,
+        "result": "updated",
+        "_shards": {
+          "total": 2,
+          "successful": 2,
+          "failed": 0
+        },
+        "_seq_no": 38,
+        "_primary_term": 3,
+        "status": 201
+      }
+    },
+    {
+      "create": {
+        "_index": "products",
+        "_id": "201",
+        "_version": 1,
+        "result": "created",
+        "_shards": {
+          "total": 2,
+          "successful": 2,
+          "failed": 0
+        },
+        "_seq_no": 39,
+        "_primary_term": 3,
+        "status": 201
+      }
+    }
+  ]
+}
+
+The Bulk API expects data formatted using the NDJSON specification:
+action_and_metadata\n
+optional_source\n
+action_and_metadata\n
+optional_source\n
+
+
+POST /_bulk
+{
+  "index": { // action
+    "_index": "products", // metadata
+    "_id": 200
+  }
+}
+{
+  "name": "Espresso Machine", // source document
+  "price": 199,
+  "in_stock": 5
+}
+
+
+POST /_bulk
+{ "update": { "_index": "products", "_id": 201 } }
+{ "doc": { "price": 129 } }
+{ "delete": { "_index": "products", "_id": 200 } }
+
+or
+POST /products/_bulk - the actions are now all run against "products" index so that means we can remove them from metadata.
+{ "update": { "_id": 201 } }
+{ "doc": { "price": 129 } }
+{ "delete": { "_id": 200 } }
+Response:
+{
+  "took": 9,
+  "errors": false,
+  "items": [
+    {
+      "update": {
+        "_index": "products",
+        "_id": "201",
+        "_version": 6,
+        "result": "updated",
+        "_shards": {
+          "total": 2,
+          "successful": 2,
+          "failed": 0
+        },
+        "_seq_no": 47,
+        "_primary_term": 3,
+        "status": 200
+      }
+    },
+    {
+      "delete": {
+        "_index": "products",
+        "_id": "200",
+        "_version": 7,
+        "result": "deleted",
+        "_shards": {
+          "total": 2,
+          "successful": 2,
+          "failed": 0
+        },
+        "_seq_no": 48,
+        "_primary_term": 3,
+        "status": 200
+      }
+    }
+  ]
+}
+
+Notes:
+ - The HTTP header Content-Type should be set as Content-Type: application/x-ndjson
+ - A failed action will not affect other actions
+ 
+ 
+curl --location 'https://localhost:9200/products/_bulk' \
+--header 'Content-Type: application/x-ndjson' \
+--header 'Authorization: ••••••' \
+--data-binary '@/C:/Users/uladz/Downloads/products-bulk.json'
+
+GET /_cat/indices?v
+health status index                        uuid                   pri rep docs.count docs.deleted store.size pri.store.size
+green  open   products                     svq38Li4QZ6uDp6GtvKM9w   1   1       1000            0    744.4kb        387.8kb
+GET /_cat/shards?v
+index                            shard prirep state   docs   store ip         node
+products                         0     p      STARTED 1000 387.8kb 172.19.0.3 opensearch-node2
+products                         0     r      STARTED 1000 356.5kb 172.19.0.4 opensearch-node1
+
+=================================================================
+
