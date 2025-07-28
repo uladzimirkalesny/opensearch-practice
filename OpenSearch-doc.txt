@@ -704,6 +704,9 @@ Error Message:
   "status": 409
 }
 
+Handle failure situation at the application level
+ = Retrieve the doc again
+ - Use _primary_term and _seq_no again for new update request
 =================================================================
 
 Update by query:
@@ -1014,4 +1017,310 @@ products                         0     p      STARTED 1000 387.8kb 172.19.0.3 op
 products                         0     r      STARTED 1000 356.5kb 172.19.0.4 opensearch-node1
 
 =================================================================
+
+Analysis (text analysis):
+
+Text values are analyzed when indexing docs.
+The result is stored in data structures that are efficient for searching.
+The "_source" object is not used when searching for documents (It contains exact values specified when indexing a doc).
+
+When a text value is indexed, analyzer is used to process the text (Character Filters, Tokenizer, Token Filters).
+The result of analyzed text values are stored in a searchable data structure.
+
+Character Filters:
+ - Receive the original text and may transform it by adding, removing or changing characters.
+ - Analyzer contains 0 or more character filters.
+ - Character Filters are applied in the order in which they are specified.
+Example (html_strip filter):
+ - Input "I&apos;m in a <em>good</em> mood&nbsp;-&nbsp;and <strong>love</strong> acai!"
+ - Output "I'm in a good mood - and love acai!"
+ 
+Tokenizers:
+ - An analyzer contains 1 Tokenizer that resonsible for tokenizing the text.
+ - Tokenizes a string, i.e. splits it into tokens
+ - Characters may be stripped as part of the tokenization.
+Example
+ - Input: "I REALLY like beer!"
+ - Output: "["I", "REALLY", "like", "beer"]" // tokenizer also records the character offsets for each token in the original string.
+ 
+Token Filters:
+ - Receive the output of the tokenizer as input (i.e. the tokens)
+ - A token filter can add, remove, modify tokens
+ - An analyzer contains 0 or more token filters
+ - Token filters are applied in the order in which they are specified
+Example (lowercase filter)
+ - Input: "["I", "REALLY", "like", "beer"]"
+ - Output: "["i", "really", "like", "beer"]"
+
+=================================================================
+
+Using the Analyze API
+
+POST /_analyze
+{
+  "text": "2 guys walk into  a bar, but the third... DUCKS! :-)",
+  "analyzer": "standard" // removes .../,/!/etc , and trims whitespaces, uses lowercase token filter
+}
+Response:
+{
+  "tokens": [
+    {
+      "token": "2",
+      "start_offset": 0, // offsets where the token appeared in the text before it was analyzed.
+      "end_offset": 1,
+      "type": "<NUM>",
+      "position": 0
+    },
+    {
+      "token": "guys",
+      "start_offset": 2,
+      "end_offset": 6,
+      "type": "<ALPHANUM>",
+      "position": 1
+    },
+    {
+      "token": "walk",
+      "start_offset": 7,
+      "end_offset": 11,
+      "type": "<ALPHANUM>",
+      "position": 2
+    },
+    {
+      "token": "into",
+      "start_offset": 12,
+      "end_offset": 16,
+      "type": "<ALPHANUM>",
+      "position": 3
+    },
+    {
+      "token": "a",
+      "start_offset": 18,
+      "end_offset": 19,
+      "type": "<ALPHANUM>",
+      "position": 4
+    },
+    {
+      "token": "bar",
+      "start_offset": 20,
+      "end_offset": 23,
+      "type": "<ALPHANUM>",
+      "position": 5
+    },
+    {
+      "token": "but",
+      "start_offset": 25,
+      "end_offset": 28,
+      "type": "<ALPHANUM>",
+      "position": 6
+    },
+    {
+      "token": "the",
+      "start_offset": 29,
+      "end_offset": 32,
+      "type": "<ALPHANUM>",
+      "position": 7
+    },
+    {
+      "token": "third",
+      "start_offset": 33,
+      "end_offset": 38,
+      "type": "<ALPHANUM>",
+      "position": 8
+    },
+    {
+      "token": "ducks",
+      "start_offset": 42,
+      "end_offset": 47,
+      "type": "<ALPHANUM>",
+      "position": 9
+    }
+  ]
+}
+or
+POST /_analyze
+{
+  "text": "2 guys walk into  a bar, but the third... DUCKS! :-)",
+  "char_filter": [],
+  "tokenizer": "standard",
+  "filter": ["lowercase"]
+}
+Response will be the same:
+{
+  "tokens": [
+    {
+      "token": "2",
+      "start_offset": 0,
+      "end_offset": 1,
+      "type": "<NUM>",
+      "position": 0
+    },
+    {
+      "token": "guys",
+      "start_offset": 2,
+      "end_offset": 6,
+      "type": "<ALPHANUM>",
+      "position": 1
+    },
+    {
+      "token": "walk",
+      "start_offset": 7,
+      "end_offset": 11,
+      "type": "<ALPHANUM>",
+      "position": 2
+    },
+    {
+      "token": "into",
+      "start_offset": 12,
+      "end_offset": 16,
+      "type": "<ALPHANUM>",
+      "position": 3
+    },
+    {
+      "token": "a",
+      "start_offset": 18,
+      "end_offset": 19,
+      "type": "<ALPHANUM>",
+      "position": 4
+    },
+    {
+      "token": "bar",
+      "start_offset": 20,
+      "end_offset": 23,
+      "type": "<ALPHANUM>",
+      "position": 5
+    },
+    {
+      "token": "but",
+      "start_offset": 25,
+      "end_offset": 28,
+      "type": "<ALPHANUM>",
+      "position": 6
+    },
+    {
+      "token": "the",
+      "start_offset": 29,
+      "end_offset": 32,
+      "type": "<ALPHANUM>",
+      "position": 7
+    },
+    {
+      "token": "third",
+      "start_offset": 33,
+      "end_offset": 38,
+      "type": "<ALPHANUM>",
+      "position": 8
+    },
+    {
+      "token": "ducks",
+      "start_offset": 42,
+      "end_offset": 47,
+      "type": "<ALPHANUM>",
+      "position": 9
+    }
+  ]
+}
+
+=================================================================
+
+Understanding inverted indices
+
+ - A field's values are stored in 1 of several data structures
+   - The data structure depends on the field's data type
+ - Ensures efficient data access - e.g. searches
+ - Handled by Apache Lucene
+ 
+Inverted indices 
+ - is essentially a mapping between terms and which docs contain them
+ - Outside the context of analyzers, we use the terminology "terms" - tokens that are emitted by the analyzer
+ 
+Sentence 												->	Tokens
+"2 guys walk into  a bar, but the third... DUCKS! :-)" 	->	["2", "guys", "walk", "into", "a", "bar", "but", "the", "third", "ducks"]
+"2 guys want into a bar"								->	["2", "guys", "went", "into", "a", "bar"]
+"2 ducks walk around the lake"							->	["2", "ducks", "walk", "around", "the", "lake"]
+
+Term	Document #1		Document #2		Document #3
+2			x				x				x
+a			x				x				
+around										x
+bar			x				x
+but			x
+ducks		x								x                                 <----- Inverted index
+guys		x				x
+into		x				x
+lake										x
+the			x								x	
+third		x				
+walk		x								x
+went						x
+
+Example
+ - we are looking for search "ducks" -> figuring out which docs are contain that term("token") by performing simple lookup in the inverted index
+ - doc 1 and 3 contain this term (that makes the process of searching for term more simpler and efficient).
+ 
+The inverted indices that are stored within Apache Lucene contain a bit more information, such as data that is used for relevance scoring
+
+Lets assume that docs have a number of different fields:
+Doc 1
+{
+ "name": "Coffee Machine",
+ "description": "Makes coffee super fast!"
+ "price": 64,
+ "in_stock": 10,
+ "created_at": "2025-05-05" 
+}
+
+Doc 2
+{
+ "name": "Toaster",
+ "description": "Makes delicious toasts..."
+ "price": 49,
+ "in_stock": 4,
+ "created_at": "2017-06-06" 
+}
+
+An inverted index is actually created for each text field, meaning that we will have 2 inverted indices for the "name" and "description" fields ("name" and "description" fields are textual)
+name field
+TERM		Doc 1		Doc 2
+coffee		x
+maker		x
+toaster					x
+
+description field
+TERM 		Doc 1		Doc 2
+coffee		x
+delicious				x
+fast		x
+makes		x			x
+super		x
+toasts					x
+
+NOTE: One inverted index per textual field. Other data types use BKD trees, for instance numeric, date, geospatial. BKD is efficient for the range numeric queries.
+
+=================================================================
+
+Mapping
+
+Defines	the structure of docs (e.g. fields and their data types)
+Also used to configure how values are indexed.
+Similar to a tables schema in RDBMS
+PUT /employees
+{
+  "mappings": {
+	"properties": {
+	  "id": { "type": "integer" },
+	  "first_name": { "type": "text" },
+	  "last_name": { "type": "text" },
+	  "dob": { "type": "date" },
+	  "description": { "type": "text" },
+	  "created_at": { "type": "date" }
+	}
+  }
+}
+
+Explicit mappings - we define field and data type mappings ourselves, typically when creating an index.
+Dynamic mappings - OpenSearch generates field mappings for us, field mapping will be automatically created when OpenSearch encounters a new field.
+
+=================================================================
+
+Overview of data types
 
