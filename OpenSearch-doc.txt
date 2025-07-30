@@ -1324,3 +1324,229 @@ Dynamic mappings - OpenSearch generates field mappings for us, field mapping wil
 
 Overview of data types
 
+https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/field-data-types
+https://docs.opensearch.org/latest/field-types/supported-field-types/index/
+
+Basic list of data types:
+ - object 
+	- Used for any JSON object (each doc that we index into OpenSearch is a JSON object)
+	- Objects may be nested
+	- Mapped using the "properties" parameter
+	  {
+		"name": "Coffee Maker",
+		"manufacturer": {
+		  "country": "China"
+		}
+	  }
+	  PUT /products
+	  {
+		"mappings": {
+		  "properties": { // properties key is added for objects instead of specifying the type key as with other data types. 
+		    "name": { "type": "text" },
+			"manufacturer": {
+			  "properties": {
+			    "country": { "type": "text" }
+			  }
+			}
+		  }
+		}
+	  }
+	- Objects are not stored as objects in Apache Lucene
+		- Objects are transformed to ensure that we can index any valid JSON
+		- In particular, objects are flattened
+		  {
+			"name": "Coffee Maker",
+			"manufacturer": {
+			  "country": "China"
+			}
+		  }
+		  Transform to 
+		  {
+		    "name": "Coffee Maker",
+			"manufacturer.country": "China"
+		  }
+		  Example with flattened array: 
+		  {
+		    "name": "Coffee Maker",
+			"reviews.rating": [5.0, 3.5],
+			"reviews.author": ["John Doe", "Jane Doe"]
+			"reviews.description": [
+			  "Great",
+			  "Cool"
+			]
+		  }
+ - nested
+	- Similar to the "object" data type, but maintains object relationships
+		- Useful when indexing arrays of objects (objects are stored independently)
+	- Enables us to query objects independently
+		- Must use the nested query
+	{
+	  "name": "Coffee Maker",
+	  "reviews": [
+	    {
+		  "rating": 5.0,
+		  "author": "John Doe",
+		  "description": "Great"
+		},
+		{
+		  "rating": 3.5,
+		  "author": "Jane Doe",
+		  "description": "Cool"
+		}
+	  ]
+	}
+	PUT /products
+	{
+	  "mappings": {
+	    "properties"": {
+		  "name": { "type": "text" },
+		  "reviews": { "type": "nested" }
+		}
+	  }
+	}
+	- nested objects are stored as hidden docs (for example: 1 doc as product and 2 docs as review)
+ - keyword
+	- used for exact matching of values (e.g. email like in example below)
+	- typically used for filtering, aggregations and sorting (e.g. searching for articles with a status PUBLISHED)
+	- for full-text searches, use the "text" data type instead. (full-text searches are searches that do not require exact matches).
+	  (e.g. searching the body text of an article).
+	- keyword fields are analyzed with the keyword analyzer
+	- the keyword analyzer is a no-op analyzer (it outputs the unmodified string as a single token).
+	  POST /_analyze
+	  {
+        "text": "2 guys walk into  a bar, but the third... DUCKS! :-)",
+        "analyzer": "keyword"
+      }
+	  Response:
+	  {
+		"tokens": [
+			{
+				"token": "2 guys walk into  a bar, but the third... DUCKS! :-)",
+				"start_offset": 0,
+				"end_offset": 52,
+				"type": "word",
+				"position": 0
+			}
+		]
+	  }
+	  Inverted Index example:
+		TERM														Doc 1		Doc 2
+		2 guys walk into  a bar, but the third... DUCKS! :-)		x
+		2 guys went into a bar													x
+	  Inverted Index example 2:
+	  { 
+	    "name": " John Doe",
+	    "email": "johndoe@example.com"
+	  }
+	  { 
+	    "name": " Jane Doe",
+	    "email": "janedoe@example.com"
+	  }
+		TERM					Doc 1		Doc 2
+		johndoe@example.com		x
+		janedoe@example.com					x
+ - integer
+ - long
+ - boolean
+ - text
+ - double
+ - short
+ - date
+ - float
+
+=================================================================
+
+Understanding type coercion
+
+ - Data types are inspected when indexing docs (validates and some invalid values will be rejected)
+ PUT /coercion_test/_doc/1
+{
+  "price": 7.4 // float
+}
+
+PUT /coercion_test/_doc/2
+{
+  "price": "7.4" // text will be use type coercion "string" to "float"
+}
+
+PUT /coercion_test/_doc/3
+{
+  "price": "7.4m"
+}
+Response:
+{
+  "error": {
+    "root_cause": [
+      {
+        "type": "mapper_parsing_exception",
+        "reason": "failed to parse field [price] of type [float] in document with id '3'. Preview of field's value: '7.4m'"
+      }
+    ],
+    "type": "mapper_parsing_exception",
+    "reason": "failed to parse field [price] of type [float] in document with id '3'. Preview of field's value: '7.4m'",
+    "caused_by": {
+      "type": "number_format_exception",
+      "reason": "For input string: \"7.4m\""
+    }
+  },
+  "status": 400
+}
+
+Coercion mechanism inspects mapping and coerce into field data if possible.
+GET /coercion_test
+{
+  "coercion_test": {
+    "aliases": {},
+    "mappings": {
+      "properties": {
+        "price": {
+          "type": "float"
+        }
+      }
+    },
+    "settings": {
+      "index": {
+        "replication": {
+          "type": "DOCUMENT"
+        },
+        "number_of_shards": "1",
+        "provided_name": "coercion_test",
+        "creation_date": "1753835469901",
+        "number_of_replicas": "1",
+        "uuid": "Ld3ZXOCPSICDGxLn56QnUA",
+        "version": {
+          "created": "137227827"
+        }
+      }
+    }
+  }
+}
+
+Understanding the "_source" object:
+ - Contains the values that were supplied at index time ("7.4")
+	- not the values that are indexed
+ - Search queries use indexed values, not "_source"
+GET /coercion_test/_doc/2
+Response:
+{
+  "_index": "coercion_test",
+  "_id": "2",
+  "_version": 3,
+  "_seq_no": 3,
+  "_primary_term": 1,
+  "found": true,
+  "_source": {
+    "price": "7.4"
+  }
+}
+ - "_source" does not reflect how values are indexed
+  - Keep coercion in mind if we use values from "_source" (in the example above it might be either a string or floating point)
+ - Disabling coercion is a matter of preference (it is enabled by default, but good practice to disable it).
+How to double-check at index level
+Run:
+GET /coercion_test/_settings
+Look for:
+"index.mapping.coerce": "false" // If not present → coercion is enabled globally.
+
+=================================================================
+
