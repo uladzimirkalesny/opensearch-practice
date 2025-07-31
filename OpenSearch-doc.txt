@@ -1238,6 +1238,9 @@ Sentence 												->	Tokens
 "2 guys want into a bar"								->	["2", "guys", "went", "into", "a", "bar"]
 "2 ducks walk around the lake"							->	["2", "ducks", "walk", "around", "the", "lake"]
 
+Term is the smallest unit of search stored in the inverted index.
+Terms are generated from text after it has been processed by an analyzer.
+
 Term	Document #1		Document #2		Document #3
 2			x				x				x
 a			x				x				
@@ -2052,3 +2055,512 @@ GET /reviews/_search
 =================================================================
 
 Overview of mapping parameters
+
+https://docs.opensearch.org/latest/field-types/mapping-parameters/index/
+
+ - format - Specifies the date format for date fields. There is no default value for this parameter. Allowed values are any valid date format string, such as yyyy-MM-dd or epoch_millis.
+	Recommended to use default format
+		- "strict_date_optional_time||epoch_millis"
+	Using Java's DateFormatter syntax
+		- "dd/MM/yyyy"
+	Using built-in formats
+		- "epoch_second"
+
+Examples:
+PUT /sales
+{
+	"mappings": {
+		"properties": {
+			"purchased_at": {
+				"type": "date",
+				"format": "dd/MM/yyyy"
+			}
+		}
+	}
+}
+
+PUT /sales
+{
+	"mappings": {
+		"properties": {
+			"purchased_at": {
+				"type": "date",
+				"format": "epoch_second"
+			}
+		}
+	}
+}
+
+ - properties - defines nested fields for object and nested fields
+
+Examples:
+PUT /products
+{
+  "mappings": {
+    "properties": {
+      "name": {
+        "type": "text"
+      },
+      "sku": {
+        "type": "keyword"
+      },
+      "price": {
+        "type": "float"
+      },
+      "available": {
+        "type": "boolean"
+      },
+      "created_at": {
+        "type": "date",
+        "format": "yyyy-MM-dd"
+      },
+      "dimensions": {
+        "type": "object",
+        "properties": {
+          "width": { "type": "float" },
+          "height": { "type": "float" },
+          "depth": { "type": "float" }
+        }
+      }
+    }
+  }
+}
+
+PUT /products/_doc/1
+{
+  "name": "Wireless Mouse",
+  "sku": "WM-1001",
+  "price": 24.99,
+  "available": true,
+  "created_at": "2024-12-01",
+  "dimensions": {
+    "width": 6.5,
+    "height": 3.2,
+    "depth": 1.5
+  }
+}
+
+ - coerce - controls how values are converted to the expected field data type during indexing. 
+	This parameter lets you verify that your data is formatted and indexed properly, following the expected field types.
+	This improves the accuracy of your search results.
+	Used to enable or disable coercion of values (enabled by default)
+
+Examples:
+Indexing a document with coerce enabled:
+PUT products
+{
+  "mappings": {
+    "properties": {
+      "price": {
+        "type": "integer",
+        "coerce": true
+      }
+    }
+  }
+}
+
+PUT products/_doc/1
+{
+  "name": "Product A",
+  "price": "19.99"  // In this example, the price field is defined as an integer type with coerce set to true. When indexing the document, the string value 19.99 is coerced to the integer 19.
+}
+
+Indexing a document with coerce disabled:
+PUT orders
+{
+  "mappings": {
+    "properties": {
+      "quantity": {
+        "type": "integer",
+        "coerce": false
+      }
+    }
+  }
+}
+
+PUT orders/_doc/1
+{
+  "item": "Widget",
+  "quantity": "10" // When indexing the document, the string value 10 is not coerced, and the document is rejected because of the type mismatch.
+}
+
+Setting the index-level coercion setting
+PUT inventory
+{
+  "settings": {
+    "index.mapping.coerce": false  // the index-level index.mapping.coerce setting is set to false,  which disables coercion for the index
+  },
+  "mappings": {
+    "properties": {
+      "stock_count": {
+        "type": "integer",
+        "coerce": true // the stock_count field overrides this setting and enables coercion for this specific field.
+      },
+      "sku": {
+        "type": "keyword"
+      }
+    }
+  }
+}
+
+PUT inventory/_doc/1
+{
+  "sku": "ABC123",
+  "stock_count": "50"
+}
+
+ - doc_values - enables document-to-term lookups for operations such as sorting, aggregations, and scripting.
+	OpenSearch indexes most fields for search purposes.
+	The doc_values parameter is not supported for use in text fields.
+Option	Description
+true	Enables doc_values for the field. Default is true.
+false	Disables doc_values for the field.
+
+Example (The following example request creates an index with doc_values enabled for one field and disabled for another:)
+PUT my-index-001
+{
+  "mappings": {
+    "properties": {
+      "status_code": { 
+        "type": "keyword"
+      },
+      "session_id": { 
+        "type": "keyword",
+        "doc_values": false
+      }
+    }
+  }
+}
+
+
+The doc_values parameter is not supported for use in text fields like Inverted Indices
+"doc_vaues" is another data structure used by Apache Lucene
+"doc_values" optimized for a different data access pattern (document -> terms)
+
+Essentially an "uninverted" inverted index
+Set the doc_values to "false" to save disk space if we won't use aggregations, sorting, scripting
+If we disable "doc_values", we can not change this without re-indexing (Reindex API)
+
+ - norms - controls whether normalization factors are computed and stored for a field.
+	These factors are used during query scoring to adjust the relevance of the search results.
+	However, storing norms increases the index size and consumes additional memory.
+	By default, norms is enabled on text fields, for which relevance scoring is important.
+	Fields that do not require these scoring features, such as keyword fields used only for filtering, are configured with norms disabled.
+	Often we don't want just to filter results, but also rank them based on how well they match a given query.
+
+Disabling norms on a field
+The following request creates an index named products with the description field as a text field with norms disabled:
+PUT /products
+{
+  "mappings": {
+    "properties": {
+      "description": {
+        "type": "text",
+        "norms": false
+      }
+    }
+  }
+}
+To disable norms on a field in an existing index, use the following request:
+PUT /products/_mapping
+{
+  "properties": {
+    "review": {
+      "type": "text",
+      "norms": false
+    }
+  }
+}
+
+Enabling norms on a field that has norms disabled is impossible and will result in the following error:
+{
+  "error": {
+    "root_cause": [
+      {
+        "type": "illegal_argument_exception",
+        "reason": "Mapper for [description] conflicts with existing mapper:\n\tCannot update parameter [norms] from [false] to [true]"
+      }
+    ],
+    "type": "illegal_argument_exception",
+    "reason": "Mapper for [description] conflicts with existing mapper:\n\tCannot update parameter [norms] from [false] to [true]"
+  },
+  "status": 400
+}
+
+ - index - controls whether a field is searchable by including it in the inverted index. 
+	When set to true, the field is indexed and available for queries. 
+	When set to false, the field is stored in the document (_source) but not indexed, making it non-searchable.
+	If you do not need to search a particular field, disabling indexing for that field can reduce index size and improve indexing performance.
+	For example, you can disable indexing on large text fields or metadata that is only used for display.
+	
+Enabling indexing on a field
+The following request creates an index named products with a description field that is indexed (the default behavior):
+PUT /products
+{
+  "mappings": {
+    "properties": {
+      "description": {
+        "type": "text"
+      }
+    }
+  }
+}
+
+Index a document using the following request:
+PUT /products/_doc/1
+{
+  "description": "This product has a searchable description."
+}
+
+Query the description field:
+POST /products/_search
+{
+  "query": {
+    "match": {
+      "description": "searchable"
+    }
+  }
+}
+
+The following response confirms that the indexed document was successfully matched by the query:
+{
+  ...
+  "hits": {
+    "total": {
+      "value": 1,
+      "relation": "eq"
+    },
+    "max_score": 0.2876821,
+    "hits": [
+      {
+        "_index": "products",
+        "_id": "1",
+        "_score": 0.2876821,
+        "_source": {
+          "description": "This product has a searchable description."
+        }
+      }
+    ]
+  }
+}
+
+Disabling indexing on a field
+Create an index named products-no-index with a description field that is not indexed:
+
+PUT /products-no-index
+{
+  "mappings": {
+    "properties": {
+      "description": {
+        "type": "text",
+        "index": false
+      }
+    }
+  }
+}
+
+Index a document using the following request:
+
+PUT /products-no-index/_doc/1
+{
+  "description": "This product has a non-searchable description."
+}
+
+Query products-no-index using the description field:
+
+POST /products-no-index/_search
+{
+  "query": {
+    "match": {
+      "description": "non-searchable"
+    }
+  }
+}
+
+The following error response indicates that the search query failed because the description field is not indexed:
+
+{
+  "error": {
+    "root_cause": [
+      {
+        "type": "query_shard_exception",
+        "reason": "failed to create query: Cannot search on field [description] since it is not indexed.",
+        "index": "products-no-index",
+        "index_uuid": "yX2F4En1RqOBbf3YWihGCQ"
+      }
+    ],
+    "type": "search_phase_execution_exception",
+    "reason": "all shards failed",
+    "phase": "query",
+    "grouped": true,
+    "failed_shards": [
+      {
+        "shard": 0,
+        "index": "products-no-index",
+        "node": "0tmy2tf7TKW8qCmya9sG2g",
+        "reason": {
+          "type": "query_shard_exception",
+          "reason": "failed to create query: Cannot search on field [description] since it is not indexed.",
+          "index": "products-no-index",
+          "index_uuid": "yX2F4En1RqOBbf3YWihGCQ",
+          "caused_by": {
+            "type": "illegal_argument_exception",
+            "reason": "Cannot search on field [description] since it is not indexed."
+          }
+        }
+      }
+    ]
+  },
+  "status": 400
+}
+
+ - null_value - allows you to replace explicit null values with a predefined substitute during indexing.
+	By default, if a field is set to null, it is not indexed and cannot be searched. 
+	With null_value defined, the specified replacement value is indexed instead. 
+	This allows you to query or aggregate documents in which a field was originally null without modifying the document _source.
+	The null_value must be of the same type as the field it is applied to. 
+		For instance, a date field cannot use a boolean such as true as its null_value; the null_value must be a valid date string.
+
+Setting a null_value on a field
+The following request creates an index named products. The category field is of type keyword and replaces null values with "unknown" during indexing:
+PUT /products
+{
+  "mappings": {
+    "properties": {
+      "category": {
+        "type": "keyword",
+        "null_value": "unknown"
+      }
+    }
+  }
+}
+
+
+Indexing a document with a null value
+Use the following command to index a document in which the category field is set to null:
+PUT /products/_doc/1
+{
+  "category": null
+}
+
+Querying the null substitute
+Use the following command to search for documents in which the category field was previously null:
+POST /products/_search
+{
+  "query": {
+    "term": {
+      "category": "unknown"
+    }
+  }
+}
+The response contains the matching document:
+{
+  ...
+  "hits": {
+    "total": {
+      "value": 1,
+      "relation": "eq"
+    },
+    "max_score": 0.2876821,
+    "hits": [
+      {
+        "_index": "products",
+        "_id": "1",
+        "_score": 0.2876821,
+        "_source": {
+          "category": null
+        }
+      }
+    ]
+  }
+}
+
+ - copy_to - allows you to copy the values of multiple fields into a single field.
+	This parameter can be useful if you often search across multiple fields because it allows you to search the group field instead.
+	Only the field value is copied and not the terms resulting from the analysis process.
+	The original _source field remains unmodified, and the same value can be copied to multiple fields using the copy_to parameter. 
+	However, recursive copying through intermediary fields is not supported; instead, use copy_to directly from the originating field to multiple target fields.
+
+Examples
+The following example uses the copy_to parameter to search for products by their name and description and copy those values into a single field:
+PUT my-products-index
+{
+  "mappings": {
+    "properties": {
+      "name": {
+        "type": "text",
+        "copy_to": "product_info"
+      },
+      "description": {
+        "type": "text",
+        "copy_to": "product_info" 
+      },
+      "product_info": {
+        "type": "text"
+      },
+      "price": {
+        "type": "float"
+      }
+    }
+  }
+}
+
+PUT my-products-index/_doc/1
+{
+  "name": "Wireless Headphones",
+  "description": "High-quality wireless headphones with noise cancellation",
+  "price": 99.99
+}
+
+PUT my-products-index/_doc/2
+{
+  "name": "Bluetooth Speaker",
+  "description": "Portable Bluetooth speaker with long battery life",
+  "price": 49.99
+}
+
+In this example, the values from the name and description fields are copied into the product_info field. You can now search for products by querying the product_info field, as follows:
+GET my-products-index/_search
+{
+  "query": {
+    "match": {
+      "product_info": "wireless headphones"
+    }
+  }
+}
+
+esponse
+{
+  "took": 20,
+  "timed_out": false,
+  "_shards": {
+    "total": 1,
+    "successful": 1,
+    "skipped": 0,
+    "failed": 0
+  },
+  "hits": {
+    "total": {
+      "value": 1,
+      "relation": "eq"
+    },
+    "max_score": 1.9061546,
+    "hits": [
+      {
+        "_index": "my-products-index",
+        "_id": "1",
+        "_score": 1.9061546,
+        "_source": {
+          "name": "Wireless Headphones",
+          "description": "High-quality wireless headphones with noise cancellation",
+          "price": 99.99
+        }
+      }
+    ]
+  }
+}
+
+=================================================================
+
+Update existing mapping
+
