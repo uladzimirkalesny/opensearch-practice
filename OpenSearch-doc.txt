@@ -1550,3 +1550,505 @@ Look for:
 
 =================================================================
 
+Understanding arrays
+
+ - There are no such thing as an array data type
+ - Any field may contain 0 or more values by default
+
+{
+	"tags": "Smartphone"
+}
+handling the same like because the tags will be mapped as "text"
+{
+	"tags": [ "Smartphone", "Electronics" ] // it will concatinated before analyzing and resulting tokens are stored within inverted index as normal
+}
+Mapping
+{
+	"products": {
+		"mappings": {
+			"properties": {
+				"tags": {
+					"type": "text"
+				}
+			}
+		}
+	}
+}
+
+POST /_analyze
+{
+  "text": ["Strings are simply", "merged together"],
+  "analyzer": "standard"
+}
+Response:
+{
+  "tokens": [
+    {
+      "token": "strings",
+      "start_offset": 0,
+      "end_offset": 7,
+      "type": "<ALPHANUM>",
+      "position": 0
+    },
+    {
+      "token": "are",
+      "start_offset": 8,
+      "end_offset": 11,
+      "type": "<ALPHANUM>",
+      "position": 1
+    },
+    {
+      "token": "simply",
+      "start_offset": 12,
+      "end_offset": 18,
+      "type": "<ALPHANUM>",
+      "position": 2
+    },
+    {
+      "token": "merged",
+      "start_offset": 19,
+      "end_offset": 25,
+      "type": "<ALPHANUM>",
+      "position": 3
+    },
+    {
+      "token": "together",
+      "start_offset": 26,
+      "end_offset": 34,
+      "type": "<ALPHANUM>",
+      "position": 4
+    }
+  ]
+}
+
+In the case of non-text fields, the values are not analyzed, and multiple values are just stored within the appropriate data structure within Apache Lucene.
+Constraints:
+ - Array values should be of the same data type (coercion will be work - need to be care)
+ - Coercion only works for fields that are already mapped
+
+Nested arrays
+ - Arrays may contain nested arrays
+ - Arrays are flattened during indexing
+ - [ 1, [ 2, 3 ] ] => [ 1, 2, 3 ]
+
+Remember to use the nested data type for arrays of objects if you need to query the objects independently.
+
+=================================================================
+
+Adding explicit mappings
+
+PUT /reviews
+{
+  "mappings": {
+    "properties": {
+      "rating": { "type": "float" },
+      "content": { "type": "text" },
+      "product_id": { "type": "integer" },
+        "author": {
+          "properties": {
+            "first_name": { "type": "text" },
+            "last_name": { "type": "text" },
+            "email": { "type": "keyword" }
+          }
+        }
+    }
+  }
+}
+Response:
+{
+  "acknowledged": true,
+  "shards_acknowledged": true,
+  "index": "reviews"
+}
+
+PUT /reviews/_doc/1
+{
+  "rating": 5.0,
+  "content": "Outstanding course! Bo really taught me a lot about OpenSearch!",
+  "product_id": 123,
+  "author": {
+    "first_name": "John",
+    "last_name": "Doe",
+    "email": "johndoe@example.com"
+  }
+}
+
+
+PUT /reviews/_doc/666
+{
+  "rating": 1.0,
+  "content": "Hate OpenSearch!",
+  "product_id": "123", // Coercion because it didn't disable by default
+  "author": {
+    "first_name": "Jane",
+    "last_name": "Doe",
+    "email": "janedoe@example.com"
+  }
+}
+
+=================================================================
+
+Retrieving mappings
+
+Useful when we are used dynamic mapping during index creation and firstly indexing the doc.
+
+GET /reviews/_mapping/
+Response:
+{
+  "reviews": {
+    "mappings": {
+      "properties": {
+        "author": {
+          "properties": {
+            "email": {
+              "type": "keyword"
+            },
+            "first_name": {
+              "type": "text"
+            },
+            "last_name": {
+              "type": "text"
+            }
+          }
+        },
+        "content": {
+          "type": "text"
+        },
+        "product_id": {
+          "type": "integer"
+        },
+        "rating": {
+          "type": "float"
+        }
+      }
+    }
+  }
+}
+
+Also possible to retrieve mapping for the specific field
+GET /reviews/_mapping/field/author.email
+Response:
+{
+  "reviews": {
+    "mappings": {
+      "author.email": {
+        "full_name": "author.email",
+        "mapping": {
+          "email": {
+            "type": "keyword"
+          }
+        }
+      }
+    }
+  }
+}
+
+=================================================================
+
+Using dot-notation in field names
+Instead of defying nested objects and their types using "properties"-approach for the nested fields it very handy to use dot-notation approach as field separation.
+
+So, instead of
+PUT /reviews
+{
+  "mappings": {
+    "properties": {
+      "rating": { "type": "float" },
+      "content": { "type": "text" },
+      "product_id": { "type": "integer" },
+        "author": {
+          "properties": {
+            "first_name": { "type": "text" },
+            "last_name": { "type": "text" },
+            "email": { "type": "keyword" }
+          }
+        }
+    }
+  }
+}
+will use dot-notation for the author fields:
+PUT /reviews_dot_notation
+{
+  "mappings": {
+    "properties": {
+      "rating": { "type": "float" },
+      "content": { "type": "text" },
+      "product_id": { "type": "integer" },
+      "author.first_name": { "type": "text" },
+      "author.last_name": { "type": "text" },
+      "author.email": { "type": "keyword" }
+    }
+  }
+}
+Response:
+{
+  "acknowledged": true,
+  "shards_acknowledged": true,
+  "index": "reviews_dot_notation"
+}
+
+GET /reviews_dot_notation/_mapping/
+Response:
+{
+  "reviews_dot_notation": {
+    "mappings": {
+      "properties": {
+        "author": {
+          "properties": {
+            "email": {
+              "type": "keyword"
+            },
+            "first_name": {
+              "type": "text"
+            },
+            "last_name": {
+              "type": "text"
+            }
+          }
+        },
+        "content": {
+          "type": "text"
+        },
+        "product_id": {
+          "type": "integer"
+        },
+        "rating": {
+          "type": "float"
+        }
+      }
+    }
+  }
+}
+
+=================================================================
+
+Adding mappings for the existing indices
+
+given
+{
+  "mappings": {
+    "properties": {
+      "rating": { "type": "float" },
+      "content": { "type": "text" },
+      "product_id": { "type": "integer" },
+        "author": {
+          "properties": {
+            "first_name": { "type": "text" },
+            "last_name": { "type": "text" },
+            "email": { "type": "keyword" }
+          }
+        }
+    }
+  }
+}
+
+For example we wanna add the "created_at" field for the review index
+PUT /reviews/_mapping
+{
+  "properties": {
+    "created_at": {
+      "type": "date"
+    }
+  }
+}
+
+GET /reviews/_mapping/
+Response:
+{
+  "reviews": {
+    "mappings": {
+      "properties": {
+        "author": {
+          "properties": {
+            "email": {
+              "type": "keyword"
+            },
+            "first_name": {
+              "type": "text"
+            },
+            "last_name": {
+              "type": "text"
+            }
+          }
+        },
+        "content": {
+          "type": "text"
+        },
+        "created_at": {
+          "type": "date"
+        },
+        "product_id": {
+          "type": "integer"
+        },
+        "rating": {
+          "type": "float"
+        }
+      }
+    }
+  }
+}
+
+=================================================================
+
+How dates work in OpenSearch
+
+ - Dates may specified in 1 of 3 ways:
+	- speciall formatted strings
+	- long (number in ms since the epoch)
+	- integer (number in seconds since the epoch)
+ - Epoch refers to the 1st of January 1970
+ - Custom formats are supported
+
+Default behavior od "date" fields
+ - 3 supported formats:
+	- A date without time
+	- A date with time
+	- Millis since the Epoch (long)
+ - UTC timezone assumed of none is specified
+ - Dates must be formatted according to the ISO 8601 specification
+
+How "date" fields are stored in OpenSearch
+ - Stored internally as ms since the epoch (long)
+ - Any valid value that we supply at index time is covered to a long value internally
+   Example: "created_at": "2015-04-15T13:07:14Z" -> 1429103261000
+ - Dates are converted to the UTC timezone
+ - The same date conversion happens for the search queries
+   Example:
+   GET /reviews/_search
+   {
+		"query": {
+			"range": {
+				"created_at": {
+					"gte": "2015-04-15T13:07:14Z" -> 1429103261000 converted to the long value before search process begins
+				}
+			}
+		}
+   }
+   
+PUT /reviews/_doc/2
+{
+  "rating": 4.5,
+  "content": "Not Bad. Not Bad at all!",
+  "product_id": 123,
+  "created_at": "2015-03-27", // check format
+  "author": {
+    "first_name": "Average",
+    "last_name": "Doe",
+    "email": "avgdoe@example.com"
+  }
+}
+
+PUT /reviews/_doc/3
+{
+  "rating": 3.5,
+  "content": "Could be better",
+  "product_id": 123,
+  "created_at": "2015-04-15T13:07:41Z", // check format T=time Z=UTC
+  "author": {
+    "first_name": "Spencer",
+    "last_name": "Person",
+    "email": "sperson@example.com"
+  }
+}
+
+PUT /reviews/_doc/4
+{
+  "rating": 5.0,
+  "content": "Incredible!",
+  "product_id": 123,
+  "created_at": "2015-01-28T09:21:51+01:00", // check format. The date is not UTC-format, instead of Z=UTC, UTC-offset can be specified (+01:00)
+  "author": {
+    "first_name": "Adam",
+    "last_name": "Jones",
+    "email": "ajones@example.com"
+  }
+}
+
+PUT /reviews/_doc/5
+{
+  "rating": 4.5,
+  "content": "Very useful",
+  "product_id": 123,
+  "created_at": 143601128400, // check format. Long number value (number of ms since the Epoch)
+  "author": {
+    "first_name": "Taylor",
+    "last_name": "West",
+    "email": "twest@example.com"
+  }
+}
+
+Note: careful with coercion !!!
+
+=================================================================
+
+How missing fields are handled
+
+GET /reviews/_search
+{
+  "query": {
+    "match_all": {}
+  }
+}
+
+{
+  "took": 945,
+  "timed_out": false,
+  "_shards": {
+    "total": 1,
+    "successful": 1,
+    "skipped": 0,
+    "failed": 0
+  },
+  "hits": {
+    "total": {
+      "value": 6,
+      "relation": "eq"
+    },
+    "max_score": 1,
+    "hits": [
+      {
+        "_index": "reviews",
+        "_id": "666",						// missed "created_at" field because we indexed this doc before "created_at" field has been introduced.
+        "_score": 1,
+        "_source": {
+          "rating": 1,
+          "content": "Hate OpenSearch!",
+          "product_id": "123",
+          "author": {
+            "first_name": "Jane",
+            "last_name": "Doe",
+            "email": "janedoe@example.com"
+          }
+        }
+      },
+      {
+        "_index": "reviews",
+        "_id": "2",
+        "_score": 1,
+        "_source": {
+          "rating": 4.5,
+          "content": "Not Bad. Not Bad at all!",
+          "product_id": 123,
+          "created_at": "2015-03-27",
+          "author": {
+            "first_name": "Average",
+            "last_name": "Doe",
+            "email": "avgdoe@example.com"
+          }
+        }
+      },
+      ...
+    ]
+  }
+}
+
+ - All fields in OpenSearch are optional
+ - We can leave out a field when indexing docs
+ - Some integrity checks need to be done at the applicaiton level (e.g. having required fields)
+ - OpenSearch will validate field values against any mapping that might exist, but it won't reject docs that leave fields out.
+ - Adding a field mapping does not make a field required
+ - Searching API automatically handle missing fields
+
+=================================================================
+
+Overview of mapping parameters
