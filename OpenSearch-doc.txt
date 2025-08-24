@@ -2564,3 +2564,218 @@ esponse
 
 Update existing mapping
 
+Lets assume that product IDs (field type=integer) may now include letters and we won't use ID field for the full-text searches
+We are going to keep filtering, so that means "keywoard" data type is good candidate
+Generally, OpenSearch field mappings can not be changed (we only can add new field mappings)
+A few mapping parameters can be updated for existing mappings: "ignore_above" attribute can be added for example to "keyword" field data type to control the length
+We can not update existing mappings because some documents have been analyzed and updates will require rebuilding the whole index
+We can not update an empty index
+Field mappings also cannot be removed
+
+GET /reviews/_mapping
+Response:
+{
+  "reviews": {
+    "mappings": {
+      "properties": {
+        "author": {
+          "properties": {
+            "email": {
+              "type": "keyword"
+            },
+            "first_name": {
+              "type": "text"
+            },
+            "last_name": {
+              "type": "text"
+            }
+          }
+        },
+        "content": {
+          "type": "text"
+        },
+        "created_at": {
+          "type": "date"
+        },
+        "product_id": {
+          "type": "integer"
+        },
+        "rating": {
+          "type": "float"
+        }
+      }
+    }
+  }
+}
+
+Add "ignore_above" attribute
+PUT /reviews/_mapping
+{
+  "properties": {
+    "author": {
+      "properties": {
+        "email": {
+          "type": "keyword",
+          "ignore_above": 256
+        }
+      }
+    }
+  }
+}
+
+email": {
+	"type": "keyword",
+	"ignore_above": 256
+}
+
+
+To Change field mapping we need to:
+ - The solution is:
+	- Create a new index with the required updated mapping and re-index existing documents into a new index
+	
+=================================================================
+
+Reindexing documents within the Reindex API
+
+Changes in field mappings usually requires reindexing documents (A snapshot is created before reindexing documents)
+
+1. Create a new index with changes in field mappings and optionally in index settings
+   a. Useful API to get field mappings of existing index is:
+GET /reviews/_mapping
+   b. Based on it we can create a new index with changes in field mappings
+PUT /reviews_new
+{
+  "mappings": {
+    "properties": {
+      "author": {
+        "properties": {
+          "email": {
+            "type": "keyword",
+            "ignore_above": 256
+          },
+          "first_name": {
+            "type": "text"
+          },
+          "last_name": {
+            "type": "text"
+          }
+        }
+      },
+      "content": {
+        "type": "text"
+      },
+      "created_at": {
+        "type": "date"
+      },
+      "product_id": {
+        "type": "keyword" // change is from "integer" to "keyword"
+      },
+      "rating": {
+        "type": "float"
+      }
+    }
+  }
+}
+2. Create a script using for example Python capabilities to:
+ - retrieve documents from the old index
+ - modify the documents to reflect the changes in field mappings
+ - store (index) them into a new index
+ 
+OR use Reindex API (POST /_reindex)
+POST /_reindex
+{
+  "source": {
+    "index": "reviews"
+  },
+  "dest": {
+    "index": "reviews_new"
+  },
+  "script": {
+    "source": """
+      if (ctx._source.product_id != null) {
+        ctx._source.product_id = ctx._source.product_id.toString();
+      }
+    """
+  }
+}
+
+Notes:
+ - It is possbile to reindex documents matching a query:
+POST /_reindex
+{
+  "source": {
+    "index": "reviews",
+	"query": {
+		"match_all": { }
+	}
+  },
+  "dest": {
+    "index": "reviews_new"
+  }
+}
+ - It is possible to reindex documents only positive reviews:
+POST /_reindex
+{
+  "source": {
+    "index": "reviews",
+	"query": {
+		"range": {
+			"rating": {
+				"gte": 4.0
+			}
+		}
+	}
+  },
+  "dest": {
+    "index": "reviews_new"
+  }
+}
+
+ - It is possible to remove fields (use "_source" to define fields that required to reinde)
+POST /_reindex
+{
+  "source": {
+    "index": "reviews",
+	"_source": [ "content", "created_at", "rating" ]
+  },
+  "dest": {
+    "index": "reviews_new"
+  }
+}
+
+- It is possible to rename a field's name
+POST /_reindex
+{
+  "source": {
+    "index": "reviews"
+  "dest": {
+    "index": "reviews_new"
+  },
+  "script": {
+    "source": """
+      # Rename #content field to "comment"
+	  ctx._source.comment = ctx._source.remove("content");
+    """
+  }
+}
+
+- It is possible to ignore documents by some criteria
+POST /_reindex
+{
+  "source": {
+    "index": "reviews"
+  "dest": {
+    "index": "reviews_new"
+  },
+  "script": {
+    "source": """
+      if (ctx._source.rating < 4.0) {
+		ctx.op = "noop"; # Can also be set "delete"
+	  }
+    """
+  }
+}
+	
+=================================================================
+
+Defining field aliases
