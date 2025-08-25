@@ -2779,3 +2779,364 @@ POST /_reindex
 =================================================================
 
 Defining field aliases
+
+To use aliases for the fields in the indices protects the index against reindexing if updates are required
+Aliases are defined with a field mapping
+GET /reviews/_mapping
+{
+  "reviews": {
+    "mappings": {
+      "properties": {
+        "author": {
+          "properties": {
+            "email": {
+              "type": "keyword",
+              "ignore_above": 256
+            },
+            "first_name": {
+              "type": "text"
+            },
+            "last_name": {
+              "type": "text"
+            }
+          }
+        },
+        "content": {
+          "type": "text"
+        },
+        "created_at": {
+          "type": "date"
+        },
+        "product_id": {
+          "type": "integer"
+        },
+        "rating": {
+          "type": "float"
+        }
+      }
+    }
+  }
+}
+
+To add comment "alias" to the content field need to perform following API call
+PUT /reviews/_mapping
+{
+  "properties": {
+    "comment": {
+      "type": "alias",
+      "path": "content"
+    }
+  }
+}
+
+To verify the alias
+GET /reviews/_search
+{
+  "query": {
+    "match": {
+      "content": "outstanding"
+    }
+  }
+}
+
+GET /reviews/_search
+{
+  "query": {
+    "match": {
+      "comment": "outstanding"
+    }
+  }
+}
+
+Response should return similar results
+
+Field aliases can actually be updated
+	
+=================================================================
+
+Multi-field mappings
+
+PUT /multi_field_test
+{
+  "mappings": {
+    "properties": {
+      "description": {
+        "type": "text"
+      },
+      "ingridients": {
+        "type": "text",
+        "fields": { 				// another inverted index are created for this field, this time using the "keyword" analyzer
+          "keyword": {				// It contains the unmodified values meaning that the terms have not been lowercased
+            "type": "keyword"
+          }
+        }
+      }
+    }
+  }
+}
+
+POST /multi_field_test/_doc
+{
+  "description": "To make this spaghetti carbonara, you first need to...",
+  "ingridients": ["Spaghetti", "Bacon", "Eggs"]
+}
+
+GET /multi_field_test/_search
+{
+  "query": {
+    "match_all": {}
+  }
+}
+
+GET /multi_field_test/_search
+{
+  "query": {
+    "match": {
+	  "ingridients": "Spaghetti"
+	}
+  }
+}
+
+GET /multi_field_test/_search
+{
+  "query": {
+    "term": { 								// term query requires an exact match for the target field
+	  "ingridients.keyword": "Spaghetti"	// when doing exact match on text values, we should query a "keyword" mapping
+	}
+  }
+}
+
+The multi-field field allows us
+ - if it has "text" type - for full-text searches
+ - if it has "keyword" type - for aggregation and sorting
+	
+=================================================================
+
+Index templates
+
+A way to automatically apply settings and mappings on index creation
+
+Structure of Index template:
+PUT /_index_template/my-index-template
+{
+  "index_patterns": ["my-index-pattern*"],
+  "template": {
+    "settings": { ... },
+	"mappings": { ... }
+  }
+}
+
+where
+1 - PUT /_index_template/my-index-template - the name of index template
+2 - "index_patterns": ["my-index-pattern*"] - pattern(s) determining when the index template is applied (OpenSearch checks if there are any index templates containing at least one pattern that matches the index name) 
+	If so, template will be applied before the new index will be created.
+3 - "settings": { ... } - settings to apply to the new index
+4 - "mappings": { ... } - field mappings to add to the new index
+
+
+Example:
+PUT /_index_template/access-logs
+{
+  "index_patterns": ["access-logs-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 2,
+      "index.mapping.coerce": false
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": { "type": "date" },
+        
+        /* Requested URL */
+        "url.original": { "type":  "wildcard" },
+        "url.path": { "type":  "wildcard" },
+        "url.scheme": { "type":  "keyword" },
+        "url.domain": { "type":  "keyword" },
+        
+        /* Client geography */
+        "client.geo.continent_name": { "type":  "keyword" },
+        "client.geo.country_name": { "type":  "keyword" },
+        "client.geo.region_name": { "type":  "keyword" },
+        "client.geo.city_name": { "type":  "keyword" },
+        
+        /* User agent */
+        "user_agent.original": { "type":  "keyword" },
+        "user_agent.name": { "type":  "keyword" },
+        "user_agent.version": { "type":  "keyword" },
+        "user_agent.device.name": { "type":  "keyword" },
+        "user_agent.os.name": { "type":  "keyword" },
+        "user_agent.os.version": { "type":  "keyword" }
+      }
+    }
+  }
+}
+
+Index template typically used for data sets that are stored in multiple indices (typically created dynamically over time)
+ - time-based indices (yearly(access-logs-2023) or monthly (access-logs-2023-01))
+ 
+Note:
+ - Settings and mappings defined within the request itself always take precedence over index template.
+ 
+Index Template can be Updated (that not modified indices which have been created before, and will apply to new ones) or Deleted
+
+=================================================================
+
+Intoduction to dynamic mapping
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
+	
+=================================================================
