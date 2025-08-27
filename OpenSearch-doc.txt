@@ -2982,6 +2982,64 @@ Index Template can be Updated (that not modified indices which have been created
 =================================================================
 
 Intoduction to dynamic mapping
+
+
+POST /my-index/_doc
+{
+  "tags": ["computer", "electronics"],
+  "in_stock": 4,
+  "created_at": "2025/01/01 00:00:00"
+}
+The first time OpenSearch encounters a field, it will automatically create a field mapping for it, which is then used for subsequent indexing requests
+
+GET /my-index/_mapping
+{
+  "my-index": {
+    "mappings": {
+      "properties": {
+        "created_at": {
+          "type": "date",  // OpenSearch uses a process called date detection
+          "format": "yyyy/MM/dd HH:mm:ss||yyyy/MM/dd||epoch_millis",
+          "print_format": "yyyy/MM/dd HH:mm:ss"
+        },
+        "in_stock": {
+          "type": "long"
+        },
+        "tags": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+2 mappings for the tags because OpenSearch does not how we intend to query fields:
+ - text mapping should be used for full-text searches
+ - keyword mapping should be used for the exact matches, aggregations, sorting
+ 
+POST /my-index/_search
+{
+  "query": {
+    "match": {
+      "tags": "computer"
+    }
+  }
+}
+
+POST /my-index/_search
+{
+  "query": {
+    "term": {
+      "tags.keyword": "computer"
+    }
+  }
+}
 	
 =================================================================
 	
