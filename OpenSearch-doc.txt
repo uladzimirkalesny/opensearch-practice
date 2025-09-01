@@ -1198,7 +1198,7 @@ Response will be the same:
     },
     {
       "token": "the",
-      "start_offset": 29,
+      "start_offset": 29,	
       "end_offset": 32,
       "type": "<ALPHANUM>",
       "position": 7
@@ -3042,8 +3042,204 @@ POST /my-index/_search
 }
 	
 =================================================================
+
+Configuring dynamic mapping
+
+Setting "dynamic" attribute into mappings for index definition to 'false' has following behavior:
+
+PUT /people
+{
+  "mappings": {
+    "dynamic": false,
+    "properties": {
+      "first_name": {
+        "type": "text"
+      }
+    }
+  }
+}
+
+POST /people/_doc
+{
+  "first_name": "John",
+  "last_name": "Doe"
+}
+
+GET /people/_mapping
+Response:
+{
+  "people": {
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "first_name": {
+          "type": "text"
+        }
+      }
+    }
+  }
+}
+
+- New fields are ignored
+	- They are not indexed, but still part of "_source"
+	GET /people/_search
+	{
+		"query": {
+			"match": {
+				"first_name": "John"
+			}
+		}
+	}
+	Response:
+	{
+		"took": 3,
+		"timed_out": false,
+		"_shards": {
+			"total": 1,
+			"successful": 1,
+			"skipped": 0,
+			"failed": 0
+		},
+		"hits": {
+			"total": {
+				"value": 1,
+				"relation": "eq"
+			},
+			"max_score": 0.13076457,
+			"hits": [
+				{
+					"_index": "people",
+					"_id": "LRt-ApkBGdZelbXtOoPS",
+					"_score": 0.13076457,
+					"_source": {
+						"first_name": "John",
+						"last_name": "Doe"
+					}
+				}
+			]
+		}
+- No inverted index is created for the "last_name" field
+	- Querying the field gives no results
+	GET /people/_search
+	{
+		"query": {
+			"match": {
+				"last_name": "Doe"
+			}
+		}
+	}
+	Response:
+	{
+		"took": 3,
+		"timed_out": false,
+		"_shards": {
+			"total": 1,
+			"successful": 1,
+			"skipped": 0,
+			"failed": 0
+		},
+		"hits": {
+			"total": {
+				"value": 0,
+				"relation": "eq"
+			},
+			"max_score": null,
+			"hits": []
+		}
+	}
+- Fields cannot be indexed if we don't have a mapping for them
+	- When "dynamic" is enabled ('true') -> dynamic mapping creates automatically one before indexing values
+	- When "dynamic" is disabled ('false') -> new fields must be mapped explicitly and thereby searchable
+
 	
+Setting "dynamic" attribute into mappings for index definition to 'strict' has following behavior:
+- Opensearch will reject unmapped fields:
+	- All fields must be mapped explicitly (similar RDBMS)
+	
+PUT /people
+{
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "first_name": {
+        "type": "text"
+      }
+    }
+  }
+}
+
+POST /people/_doc
+{
+  "first_name": "John",
+  "last_name": "Doe"
+}
+
+Response:
+{
+  "error": {
+    "root_cause": [
+      {
+        "type": "strict_dynamic_mapping_exception",
+        "reason": "mapping set to strict, dynamic introduction of [last_name] within [_doc] is not allowed"
+      }
+    ],
+    "type": "strict_dynamic_mapping_exception",
+    "reason": "mapping set to strict, dynamic introduction of [last_name] within [_doc] is not allowed"
+  },
+  "status": 400
+}
+
+- For the dynamic settings inheritance is supported
+PUT computers
+{
+  "mappings": {
+    "dynamic": "strict", // top level 
+    "properties": {
+      "name": { // inherited "dynamic": "strict"
+        "type": "text"
+      },
+      "specifications": { // inherited "dynamic": "strict"
+        "properties": {
+          "cpu": { // inherited "dynamic": "strict"
+            "properties": {
+              "name": {
+                "type": "text"
+              }
+            }
+          },
+          "other": {
+            "dynamic": "true", // override "dynamic": "strict" to "true"
+            "properties": { ... }
+          }
+        }
+      }
+    }
+  }
+}
+
+
+Numeric detection:
+PUT computers
+{
+	"mappings": {
+		"numeric_detection": true   // string to numeric values ("5.2" -> float, "100" -> long)
+	}
+}
+
+
+Date detection:
+By default checks strings to find dates in the following formats : [ "strict_date_optional_time", "yyyy/MM/dd HH:mm:ss Z||yyyy/MM/dd Z" ]
+If there are match, OpenSearch will create a 'date' field, provided that the field hasn't been seen before, and that dynamic mapping is enabled.
+
+To disable date detection: mappings -> "date_detection": "false"
+
+Example of configuring dynamic date formats: mappings -> "dynamic_date_formats": [ "dd-MM-yyyy" ]
+
 =================================================================
+
+Dynamic templates
+
+
 	
 =================================================================
 	
