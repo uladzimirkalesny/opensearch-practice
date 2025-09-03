@@ -3239,8 +3239,352 @@ Example of configuring dynamic date formats: mappings -> "dynamic_date_formats":
 
 Dynamic templates
 
+Another way configure dynamic mapping
+Dynamic Template consists of one or more conditions along with the mapping a field should use if it matches the conditions
+Dynamic Template is used when dynamic mapping is enabled and a new field is encountered without any existing mapping
 
-	
+PUT /dynamic_template_test
+{
+  "mappings": {
+    "dynamic_templates": [
+      {
+        "integers": {
+          "match_mapping_type": "long",
+          "mapping": {
+            "type": "integer"
+          }
+        }
+      }
+    ]
+  }
+}
+
+POST /dynamic_template_test/_doc
+{
+  "in_stock": 123
+}
+
+GET /dynamic_template_test/_mapping
+Response:
+{
+  "dynamic_template_test": {
+    "mappings": {
+      "dynamic_templates": [
+        {
+          "integers": {
+            "match_mapping_type": "long",
+            "mapping": {
+              "type": "integer"
+            }
+          }
+        }
+      ],
+      "properties": {
+        "in_stock": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}
+
+For strings:
+PUT /dynamic_template_test
+{
+  "mappings": {
+    "dynamic_templates": [
+      {
+        "strings": {
+          "match_mapping_type": "string",
+          "mapping": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 512
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+
+POST /dynamic_template_test/_doc
+{
+  "vendor": "opensearch"
+}
+
+GET /dynamic_template_test/_mapping
+Response:
+{
+  "dynamic_template_test": {
+    "mappings": {
+      "dynamic_templates": [
+        {
+          "strings": {
+            "match_mapping_type": "string",
+            "mapping": {
+              "fields": {
+                "keyword": {
+                  "ignore_above": 512,
+                  "type": "keyword"
+                }
+              },
+              "type": "text"
+            }
+          }
+        }
+      ],
+      "properties": {
+        "vendor": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 512
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+GET /dynamic_template_test/_search
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "match": {
+            "vendor": "opensearch"
+          }
+        }
+      ]
+    }
+  }
+}
+
+"match" and "unmatch" parameters
+- used to specify conditions for field names
+- field names must match the condition specified by the "match" parameter
+- "unmatch" is used to exclude fields that were matched by the "match" parameter
+- both parameters support patterns with wildcards (*)
+
+PUT /dynamic_template_test
+{
+  "mappings": {
+    "dynamic_templates": [
+      {
+        "strings_only_text": {
+          "match_mapping_type": "string",
+          "match": "text_*",
+          "unmatch": "*_keyword",
+          "mapping": {
+            "type": "text"
+          }
+        }
+      },
+      {
+        "strings_only_keyword": {
+          "match_mapping_type": "string",
+          "match": "*_keyword",
+          "mapping": {
+            "type": "keyword"
+          }
+        }
+      }
+    ]
+  }
+}
+
+POST /dynamic_template_test/_doc
+{
+  "text_product_decription": "A description",
+  "text_product_id_keyword": "A-1"
+}
+
+GET /dynamic_template_test/_mapping
+
+Response:
+{
+  "dynamic_template_test": {
+    "mappings": {
+      "dynamic_templates": [
+        {
+          "strings_only_text": {
+            "match": "text_*",
+            "unmatch": "*_keyword",
+            "match_mapping_type": "string",
+            "mapping": {
+              "type": "text"
+            }
+          }
+        },
+        {
+          "strings_only_keyword": {
+            "match": "*_keyword",
+            "match_mapping_type": "string",
+            "mapping": {
+              "type": "keyword"
+            }
+          }
+        }
+      ],
+      "properties": {
+        "text_product_decription": {
+          "type": "text"
+        },
+        "text_product_id_keyword": {
+          "type": "keyword"
+        }
+      }
+    }
+  }
+}
+
+Regex support
+PUT /dynamic_template_test
+{
+  "mappings": {
+    "dynamic_templates": [
+      {
+        "names": {
+          "match_mapping_type": "string",
+          "match": "^[a-zA-Z]+_name$",
+          "match_pattern": "regex",
+          "mapping": {
+            "type": "text"
+          }
+        }
+      }
+    ]
+  }
+}
+
+POST /dynamic_template_test/_doc
+{
+  "first_name": "John",
+  "last_name": "Doe"
+}
+
+GET /dynamic_template_test/_mapping
+
+Response:
+{
+  "dynamic_template_test": {
+    "mappings": {
+      "dynamic_templates": [
+        {
+          "names": {
+            "match": "^[a-zA-Z]+_name$",
+            "match_mapping_type": "string",
+            "match_pattern": "regex",
+            "mapping": {
+              "type": "text"
+            }
+          }
+        }
+      ],
+      "properties": {
+        "first_name": {
+          "type": "text"
+        },
+        "last_name": {
+          "type": "text"
+        }
+      }
+    }
+  }
+}
+
+"path_match" and "path_unmatch" parameters have similar behavior
+These parameters evaluate the full field path (name.first_name)
+Wildcards also supported
+
+PUT /dynamic_template_test
+{
+  "mappings": {
+    "dynamic_templates": [
+      {
+        "copy_to_full_name": {
+          "match_mapping_type": "string",
+          "path_match": "employee.name.*",
+          "mapping": {
+            "type": "text",
+            "copy_to": "full_name"
+          }
+        }
+      }
+    ]
+  }
+}
+
+POST /dynamic_template_test/_doc
+{
+  "employee": {
+    "name": {
+      "first_name": "John",
+      "last_name": "Doe"
+    }
+  }
+}
+
+GET /dynamic_template_test/_mapping
+
+Response:
+{
+  "dynamic_template_test": {
+    "mappings": {
+      "dynamic_templates": [
+        {
+          "copy_to_full_name": {
+            "path_match": "employee.name.*",
+            "match_mapping_type": "string",
+            "mapping": {
+              "copy_to": "full_name",
+              "type": "text"
+            }
+          }
+        }
+      ],
+      "properties": {
+        "employee": {
+          "properties": {
+            "name": {
+              "properties": {
+                "first_name": {
+                  "type": "text",
+                  "copy_to": [
+                    "full_name"
+                  ]
+                },
+                "last_name": {
+                  "type": "text",
+                  "copy_to": [
+                    "full_name"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "full_name": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 =================================================================
 	
 =================================================================
