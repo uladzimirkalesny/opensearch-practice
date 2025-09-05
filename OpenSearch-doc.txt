@@ -3588,6 +3588,30 @@ Response:
 =================================================================
 	
 =================================================================
+
+URI Searches
+
+- Apache Lucene syntax : GET /products/_search?q=name:sauvingon AND tags:wine
+- Query DSL
+GET products/_search
+{
+	"query": {
+		"bool": {
+			"must": [
+				{
+					"match": {
+						"name": "sauvingon"
+					}
+				},
+				{
+					"match": {
+						"tags": "wine"
+					}
+				}
+			]
+		}
+	}
+}
 	
 =================================================================
 	
